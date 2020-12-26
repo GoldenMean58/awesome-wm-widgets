@@ -9,17 +9,18 @@ local awful = require("awful")
 local beautiful = require("beautiful")
 local spawn = require("awful.spawn")
 local watch = require("awful.widget.watch")
+local timer = require("gears.timer")
 local wibox = require("wibox")
 local naughty = require("naughty")
 local gears = require("gears")
 
-local GET_MPD_CMD = "playerctl -p %s -f '{{status}};{{xesam:artist}};{{xesam:title}};{{mpris:artUrl}}' metadata"
+local GET_MPD_CMD = "playerctl --player=%s -f '{{status}};{{xesam:artist}};{{xesam:title}};{{mpris:artUrl}}' metadata"
 
-local TOGGLE_MPD_CMD = "playerctl play-pause"
-local PAUSE_MPD_CMD = "playerctl pause"
-local STOP_MPD_CMD = "playerctl stop"
-local NEXT_MPD_CMD = "playerctl next"
-local PREV_MPD_CMD = "playerctl previous"
+local TOGGLE_MPD_CMD = "playerctl --player=\"%s\" play-pause"
+local PAUSE_MPD_CMD = "playerctl --player=\"%s\" pause"
+local STOP_MPD_CMD = "playerctl --player=\"%s\" stop"
+local NEXT_MPD_CMD = "playerctl --player=\"%s\" next"
+local PREV_MPD_CMD = "playerctl --player=\"%s\" previous"
 local LIST_PLAYERS_CMD = "playerctl -l"
 
 local PATH_TO_ICONS = "/usr/share/icons/Arc"
@@ -30,7 +31,15 @@ local LIBRARY_ICON_NAME = PATH_TO_ICONS .. "/actions/24/music-library.png"
 
 local default_player = ''
 
+local icon = wibox.widget {
+    id = "icon",
+    widget = wibox.widget.imagebox,
+    image = PLAY_ICON_NAME
+}
+local mirrored_icon = wibox.container.mirror(icon, {horizontal = true})
+
 local mpris_widget = wibox.widget{
+    mirrored_icon,
     {
         id = 'artist',
         widget = wibox.widget.textbox
@@ -53,10 +62,18 @@ local mpris_widget = wibox.widget{
     },
     layout = wibox.layout.fixed.horizontal,
     set_text = function(self, artis, title)
-        self:get_children_by_id('artist')[1]:set_text(artis)
-        self:get_children_by_id('title')[1]:set_text(title)
+        -- self:get_children_by_id('artist')[1]:set_text(artis)
+        -- self:get_children_by_id('title')[1]:set_text(title)
     end
 }
+
+local mpris_icon_widget = wibox.container.mirror(mpris_widget, {horizontal = true})
+local mpris_current_song_widget = wibox.widget {
+    id = 'current_song',
+    widget = wibox.widget.textbox,
+    font = 'Play 10'
+}
+
 
 local rows  = { layout = wibox.layout.fixed.vertical }
 
@@ -73,10 +90,10 @@ local popup = awful.popup{
 }
 
 local function rebuild_popup()
+    for i = 0, #rows do rows[i]=nil end
     awful.spawn.easy_async(LIST_PLAYERS_CMD, function(stdout, _, _, _)
-        for player_name in stdout:gmatch("[^\r\n]+") do
+        for player_name in stdout:gmatch("([^\n\r]+)") do
             if player_name ~='' or player_name ~=nil then
-                for i = 0, #rows do rows[i]=nil end
 
                 local checkbox = wibox.widget{
                     {
@@ -92,12 +109,10 @@ local function rebuild_popup()
                     valign = 'center',
                     layout = wibox.container.place,
                 }
-
                 checkbox:connect_signal("button::press", function()
                     default_player = player_name
                     rebuild_popup()
                 end)
-
                 table.insert(rows, wibox.widget {
                     {
                         {
@@ -122,103 +137,51 @@ local function rebuild_popup()
                 })
             end
         end
+        popup:setup(rows)
     end)
-
-    popup:setup(rows)
 end
 
 local function worker()
 
     -- retriving song info
     local current_song, artist, mpdstatus, art, artUrl
-
-    local icon = wibox.widget {
-        id = "icon",
-        widget = wibox.widget.imagebox,
-        image = PLAY_ICON_NAME
-    }
-    local mirrored_icon = wibox.container.mirror(icon, {horizontal = true})
-
-    local mpdarc = wibox.widget {
-        mirrored_icon,
-        -- max_value = 1,
-        -- value = 0,
-        thickness = 2,
-        start_angle = 4.71238898, -- 2pi*3/4
-        forced_height = 24,
-        forced_width = 24,
-        rounded_edge = true,
-        bg = "#ffffff11",
-        paddings = 0,
-        widget = wibox.container.arcchart
-    }
-
-    local mpdarc_icon_widget = wibox.container.mirror(mpdarc, {horizontal = true})
-    local mpdarc_current_song_widget = wibox.widget {
-        id = 'current_song',
-        widget = wibox.widget.textbox,
-        font = 'Play 10'
-    }
-
     local update_graphic = function(widget, stdout, _, _, _)
         -- mpdstatus, artist, current_song = stdout:match("(%w+)%;+(.-)%;(.*)")
         local words = {}
-        for w in stdout:gmatch("([^;]*)") do table.insert(words, w) end
+        for w in stdout:gmatch("([^;]+)") do table.insert(words, w) end
 
         mpdstatus = words[1]
         artist = words[2]
         current_song = words[3]
         art = words[4]
-        if current_song ~= nil then
-            if string.len(current_song) > 18 then
-                current_song = string.sub(current_song, 0, 9) .. ".."
-            end
+
+        if art ~= nil then 
+          artUrl = art:match "^%s*(.-)%s*$" -- trim
         end
 
-        if art ~= nil then artUrl = string.sub(art, 8, -1) end
-
         if mpdstatus == "Playing" then
-            mpdarc_icon_widget.visible = true
+            mpris_icon_widget.visible = true
             icon.image = PLAY_ICON_NAME
             widget.colors = {beautiful.widget_main_color}
-            mpdarc_current_song_widget.markup = current_song
+            mpris_current_song_widget.markup = current_song
             widget:set_text(artist, current_song)
         elseif mpdstatus == "Paused" then
-            mpdarc_icon_widget.visible = true
+            mpris_icon_widget.visible = true
             icon.image = PAUSE_ICON_NAME
             widget.colors = {beautiful.widget_main_color}
-            mpdarc_current_song_widget.markup = current_song
+            mpris_current_song_widget.markup = current_song
             widget.set_text(artist, current_song)
         elseif mpdstatus == "Stopped" then
-            mpdarc_icon_widget.visible = true
+            mpris_icon_widget.visible = true
             icon.image = STOP_ICON_NAME
-            mpdarc_current_song_widget.markup = ""
+            mpris_current_song_widget.markup = ""
         else -- no player is running
             icon.image = LIBRARY_ICON_NAME
-            mpdarc_icon_widget.visible = false
-            mpdarc_current_song_widget.markup = ""
+            mpris_icon_widget.visible = false
+            mpris_current_song_widget.markup = ""
             widget.colors = {beautiful.widget_red}
         end
     end
-
-    mpdarc:connect_signal("button::press", function(_, _, _, button)
-        if (button == 1) then
-            awful.spawn(TOGGLE_MPD_CMD, false) -- left click
-        elseif (button == 2) then
-            awful.spawn(STOP_MPD_CMD, false)
-        elseif (button == 3) then
-            awful.spawn(PAUSE_MPD_CMD, false)
-        elseif (button == 4) then
-            awful.spawn(NEXT_MPD_CMD, false) -- scroll up
-        elseif (button == 5) then
-            awful.spawn(PREV_MPD_CMD, false) -- scroll down
-        end
-
-        -- spawn.easy_async(string.format(GET_MPD_CMD, "'" .. default_player .. "'"),
-        -- function(stdout, stderr, exitreason, exitcode)
-        --     update_graphic(mpdarc, stdout, stderr, exitreason, exitcode)
-        -- end)
-    end)
 
     mpris_widget:buttons(
             awful.util.table.join(
@@ -230,36 +193,44 @@ local function worker()
                             popup:move_next_to(mouse.current_widget_geometry)
                         end
                     end),
-                    awful.button({}, 4, function() awful.spawn(NEXT_MPD_CMD, false) end),
-                    awful.button({}, 5, function() awful.spawn(PREV_MPD_CMD, false) end),
-                    awful.button({}, 1, function() awful.spawn(TOGGLE_MPD_CMD, false) end)
+                    awful.button({}, 4, function() awful.spawn(string.format(NEXT_MPD_CMD, default_player), false) end),
+                    awful.button({}, 5, function() awful.spawn(string.format(PREV_MPD_CMD, default_player), false) end),
+                    awful.button({}, 1, function() awful.spawn(string.format(TOGGLE_MPD_CMD, default_player), false) end)
             )
     )
 
-
-
     local notification
     local function show_MPD_status()
-        spawn.easy_async(GET_MPD_CMD, function()
-            notification = naughty.notification {
-                margin = 10,
-                timeout = 5,
-                hover_timeout = 0.5,
-                width = 240,
-                height = 90,
-                title = "<b>" .. mpdstatus .. "</b>",
-                text = current_song .. " <b>by</b> " .. artist,
-                image = artUrl
-            }
-        end)
+          notification = naughty.notify {
+              margin = 10,
+              timeout = 0,
+              hover_timeout = 0.5,
+              width = 800,
+              height = 200,
+              title = mpdstatus,
+              text = "\"" .. current_song .. "\" <b>by</b> \"" .. artist .. "\"",
+              icon = artUrl,
+              icon_size = 300
+          }
     end
 
-    mpdarc:connect_signal("mouse::enter", function()
+    local t = timer { timeout = 1 }
+    mpris_widget:connect_signal("mouse::enter", function()
+        t:emit_signal("timeout")
         if current_song ~= nil and artist ~= nil then show_MPD_status() end
     end)
-    mpdarc:connect_signal("mouse::leave", function() naughty.destroy(notification) end)
-
-    watch(string.format(GET_MPD_CMD, "'" .. default_player .. "'"), 1, update_graphic, mpris_widget)
+    mpris_widget:connect_signal("mouse::leave", function() naughty.destroy(notification) end)
+    
+    t:connect_signal("timeout", function()
+        t:stop()
+        spawn.easy_async(string.format(GET_MPD_CMD, "'" .. default_player .. "'"), function(stdout, stderr, exitreason, exitcode)
+          update_graphic(mpris_widget, stdout, stderr, exitreason, exitcode)
+          t:again()
+        end)
+    end)
+    t:start()
+    t:emit_signal("timeout")
+    -- watch(string.format(GET_MPD_CMD, "'" .. default_player .. "'"), 1, update_graphic, mpris_widget)
 
     return mpris_widget
 

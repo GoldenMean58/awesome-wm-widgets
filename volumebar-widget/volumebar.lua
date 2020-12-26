@@ -55,10 +55,13 @@ local function worker(user_args)
     local update_graphic = function(_, stdout, _, _, _)
         local mute = string.match(stdout, "%[(o%D%D?)%]")    -- \[(o\D\D?)\] - [on] or [off]
         local volume = string.match(stdout, "(%d?%d?%d)%%")  -- (\d?\d?\d)\%)
+        if not volume or not mute then
+          do return end
+        end
         volume = tonumber(string.format("% 3d", volume))
 
-        widget.value = volume / 100;
-        widget.color = mute == "off"
+        volumebar_widget.value = volume / 100;
+        volumebar_widget.color = mute == "off"
                 and mute_color
                 or main_color
 
