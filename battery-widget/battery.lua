@@ -155,7 +155,7 @@ local function worker(user_args)
             level_widget.text = string.format('%d%%', charge)
         end
 
-        if (charge >= 0 and charge < 15) then
+        if (charge >= 0 and charge < 25) then
             batteryType = "battery-empty%s-symbolic"
             if enable_battery_warning and status ~= 'Charging' and os.difftime(os.time(), last_battery_check) > 300 then
                 -- if 5 minutes have elapsed since the last warning
@@ -163,7 +163,7 @@ local function worker(user_args)
 
                 show_battery_warning()
             end
-        elseif (charge >= 15 and charge < 40) then batteryType = "battery-caution%s-symbolic"
+        elseif (charge >= 25 and charge < 40) then batteryType = "battery-caution%s-symbolic"
         elseif (charge >= 40 and charge < 60) then batteryType = "battery-low%s-symbolic"
         elseif (charge >= 60 and charge < 80) then batteryType = "battery-good%s-symbolic"
         elseif (charge >= 80 and charge <= 100) then batteryType = "battery-full%s-symbolic"
